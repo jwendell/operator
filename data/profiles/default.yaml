@@ -535,6 +535,9 @@ spec:
             name: http2
           - port: 443
             name: https
+          - port: 31400
+            targetPort: 31400
+            name: tcp
           - port: 15029
             targetPort: 15029
             name: kiali

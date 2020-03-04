@@ -11674,9 +11674,7 @@ spec:
       labels:
 {{ $labels | toYaml | indent 8 }}
 {{- if eq .Release.Namespace "istio-system"}}
-        heritage: Tiller
         release: istio
-        chart: gateways
 {{- end }}
       annotations:
         sidecar.istio.io/inject: "false"
@@ -11684,6 +11682,7 @@ spec:
 {{ toYaml $gateway.podAnnotations | indent 8 }}
 {{ end }}
     spec:
+      serviceAccountName: istio-egressgateway-service-account
 {{- if .Values.global.priorityClassName }}
       priorityClassName: "{{ .Values.global.priorityClassName }}"
 {{- end }}
@@ -11844,12 +11843,6 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          {{- if $gateway.sds }}
-          {{- if $gateway.sds.enabled }}
-          - name: ISTIO_META_USER_SDS
-            value: "true"
-          {{- end }}
-          {{- end }}
           {{- if $gateway.env }}
           {{- range $key, $val := $gateway.env }}
           - name: {{ $key }}
@@ -11903,7 +11896,7 @@ spec:
       {{- else }}
       - name: istio-certs
         secret:
-          secretName: istio.default
+          secretName: istio.istio-egressgateway-service-account
           optional: true
       {{- end }}
       {{- range $gateway.secretVolumes }}
@@ -12119,32 +12112,7 @@ func chartsGatewaysIstioEgressTemplatesServiceYaml() (*asset, error) {
 	return a, nil
 }
 
-var _chartsGatewaysIstioEgressTemplatesServiceaccountYaml = []byte(`{{ $gateway := index .Values "gateways" "istio-egressgateway" }}
-{{ if ($gateway.sds) and ($gateway.sds.enabled) }}
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: istio-egressgateway-sds
-  namespace: {{ .Release.Namespace }}
-rules:
-- apiGroups: [""]
-  resources: ["secrets"]
-  verbs: ["get", "watch", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: istio-egressgateway-sds
-  namespace: {{ .Release.Namespace }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: istio-egressgateway-sds
-subjects:
-- kind: ServiceAccount
-  name: istio-egressgateway-service-account
----
-apiVersion: v1
+var _chartsGatewaysIstioEgressTemplatesServiceaccountYaml = []byte(`apiVersion: v1
 kind: ServiceAccount
 {{- if .Values.global.imagePullSecrets }}
 imagePullSecrets:
@@ -12158,7 +12126,6 @@ metadata:
   labels:
     app: istio-egressgateway
     release: {{ .Release.Name }}
-{{ end }}
 `)
 
 func chartsGatewaysIstioEgressTemplatesServiceaccountYamlBytes() ([]byte, error) {
@@ -12233,20 +12200,6 @@ gateways:
     - name: egressgateway-ca-certs
       secretName: istio-egressgateway-ca-certs
       mountPath: /etc/istio/egressgateway-ca-certs
-
-    sds:
-      # If true, ingress gateway fetches credentials from SDS server to handle TLS connections.
-      enabled: false
-      # SDS server that watches kubernetes secrets and provisions credentials to ingress gateway.
-      # This server runs in the same pod as ingress gateway.
-      image: node-agent-k8s
-      resources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-        limits:
-          cpu: 2000m
-          memory: 1024Mi
 
     configVolumes: []
     additionalContainers: []
@@ -12721,9 +12674,7 @@ spec:
       labels:
 {{ $labels | toYaml | indent 8 }}
 {{- if eq .Release.Namespace "istio-system"}}
-        heritage: Tiller
         release: istio
-        chart: gateways
 {{- end }}
       annotations:
         sidecar.istio.io/inject: "false"
@@ -13276,7 +13227,7 @@ var _chartsGatewaysIstioIngressTemplatesPoddisruptionbudgetYaml = []byte(`{{- if
 apiVersion: policy/v1beta1
 kind: PodDisruptionBudget
 metadata:
-  name: ingressgateway
+  name: istio-ingressgateway
   namespace: {{ .Release.Namespace }}
   labels:
     app: istio-ingressgateway
@@ -13668,6 +13619,9 @@ gateways:
     - port: 15032
       targetPort: 15032
       name: tracing
+    - port: 31400
+      targetPort: 31400
+      name: tcp
       # This is the port where sni routing happens
     - port: 15443
       targetPort: 15443
@@ -15192,9 +15146,7 @@ spec:
         app: sidecarInjectorWebhook
         istio: sidecar-injector
 {{- if eq .Release.Namespace "istio-system"}}
-        heritage: Tiller
         release: istio
-        chart: sidecarInjectorWebhook
 {{- end }}
       annotations:
         sidecar.istio.io/inject: "false"
@@ -16268,9 +16220,7 @@ spec:
         app: galley
         istio: galley
 {{- if eq .Release.Namespace "istio-system"}}
-        heritage: Tiller
         release: istio
-        chart: galley
 {{- end }}
       annotations:
         sidecar.istio.io/inject: "false"
@@ -17816,9 +17766,7 @@ spec:
         istio: pilot
         {{- end }}
 {{- if eq .Release.Namespace "istio-system"}}
-        heritage: Tiller
         release: istio
-        chart: pilot
 {{- end }}
       annotations:
         sidecar.istio.io/inject: "false"
@@ -34746,8 +34694,6 @@ spec:
     metadata:
       labels:
         app: grafana
-        chart: grafana
-        heritage: Tiller
         release: istio-system
       annotations:
         sidecar.istio.io/inject: "false"
@@ -35990,7 +35936,8 @@ func chartsIstioTelemetryMixerTelemetryTemplates_affinityTpl() (*asset, error) {
 	return a, nil
 }
 
-var _chartsIstioTelemetryMixerTelemetryTemplatesAutoscaleYaml = []byte(`{{- if .Values.mixer.telemetry.autoscaleMin }}
+var _chartsIstioTelemetryMixerTelemetryTemplatesAutoscaleYaml = []byte(`{{ $telemetry := index .Values "mixer" "telemetry" }}
+{{- if and $telemetry.autoscaleEnabled $telemetry.autoscaleMin $telemetry.autoscaleMax }}
 apiVersion: autoscaling/v2beta1
 kind: HorizontalPodAutoscaler
 metadata:
@@ -36000,8 +35947,8 @@ metadata:
     app: mixer
     release: {{ .Release.Name }}
 spec:
-    maxReplicas: {{ .Values.mixer.telemetry.autoscaleMax }}
-    minReplicas: {{ .Values.mixer.telemetry.autoscaleMin }}
+    maxReplicas: {{ $telemetry.autoscaleMax }}
+    minReplicas: {{ $telemetry.autoscaleMin }}
     scaleTargetRef:
       apiVersion: apps/v1
       kind: Deployment
@@ -36010,7 +35957,7 @@ spec:
     - type: Resource
       resource:
         name: cpu
-        targetAverageUtilization: {{ .Values.mixer.telemetry.cpu.targetAverageUtilization }}
+        targetAverageUtilization: {{ $telemetry.cpu.targetAverageUtilization }}
 ---
 {{- end }}
 `)
@@ -42590,6 +42537,9 @@ spec:
       labels:
         app: citadel
         istio: citadel
+{{- if eq .Release.Namespace "istio-system"}}
+        release: istio
+{{- end }}
       annotations:
         sidecar.istio.io/inject: "false"
         {{- if .Values.security.podAnnotations }}
@@ -42616,6 +42566,7 @@ spec:
           {{- else }}
             - --custom-dns-names={{ range $k,$v := .Values.security.dnsCerts }}{{ $k }}:{{ $v }},{{ end }}
           {{- end }}
+            - --monitoring-port=15014
           {{- if .Values.security.selfSigned }}
             - --self-signed-ca=true
           {{- else }}
@@ -44006,6 +43957,9 @@ spec:
             name: http2
           - port: 443
             name: https
+          - port: 31400
+            targetPort: 31400
+            name: tcp
           - port: 15029
             targetPort: 15029
             name: kiali
